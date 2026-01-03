@@ -1,4 +1,4 @@
-# whisper.cpp
+# whisper.cpp for aarch64
 
 ![whisper.cpp](https://user-images.githubusercontent.com/1991296/235238348-05d0f6a4-da44-4900-a1de-d0707e75b763.jpeg)
 
@@ -80,7 +80,8 @@ Now build the [whisper-cli](examples/cli) example and transcribe an audio file l
 ```bash
 # build the project
 cmake -B build
-cmake --build build -j --config Release
+ninja
+# This is the standard build method. For special optimizations, execute the scripts in the /soc directory of the llama.cpp aarch64 project.
 
 # transcribe an audio file
 ./build/bin/whisper-cli -f samples/jfk.wav
