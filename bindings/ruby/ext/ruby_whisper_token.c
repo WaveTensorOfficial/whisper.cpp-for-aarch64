@@ -1,4 +1,3 @@
-#include <ruby.h>
 #include "ruby_whisper.h"
 
 #define N_KEY_NAMES 11
@@ -6,7 +5,6 @@
 extern VALUE cToken;
 extern const rb_data_type_t ruby_whisper_type;
 
-static VALUE key_names;
 static VALUE sym_id;
 static VALUE sym_tid;
 static VALUE sym_probability;
@@ -26,12 +24,34 @@ ruby_whisper_token_memsize(const void *p)
   if (!rwt) {
     return 0;
   }
-  return sizeof(rwt);
+  size_t size = sizeof(*rwt);
+  if (rwt->token_data) {
+    size += sizeof(*rwt->token_data);
+  }
+  return size;
+}
+
+static void
+ruby_whisper_token_mark(void *p)
+{
+  ruby_whisper_token *rwt = (ruby_whisper_token *)p;
+  rb_gc_mark(rwt->text);
+}
+
+static void
+ruby_whisper_token_free(void *p)
+{
+  ruby_whisper_token *rwt = (ruby_whisper_token *)p;
+  if (rwt->token_data) {
+    xfree(rwt->token_data);
+    rwt->token_data = NULL;
+  }
+  xfree(rwt);
 }
 
 static const rb_data_type_t ruby_whisper_token_type = {
   "ruby_whisper_token",
-  {0, RUBY_DEFAULT_FREE, ruby_whisper_token_memsize,},
+  {ruby_whisper_token_mark, ruby_whisper_token_free, ruby_whisper_token_memsize,},
   0, 0,
   0
 };
@@ -42,19 +62,19 @@ ruby_whisper_token_allocate(VALUE klass)
   ruby_whisper_token *rwt;
   VALUE token = TypedData_Make_Struct(klass, ruby_whisper_token, &ruby_whisper_token_type, rwt);
   rwt->token_data = NULL;
-  rwt->text = NULL;
+  rwt->text = Qnil;
   return token;
 }
 
 VALUE
 ruby_whisper_token_s_init(struct whisper_context *context, int i_segment, int i_token)
 {
-  whisper_token_data token_data = whisper_full_get_token_data(context, i_segment, i_token);
   const VALUE token = ruby_whisper_token_allocate(cToken);
   ruby_whisper_token *rwt;
   TypedData_Get_Struct(token, ruby_whisper_token, &ruby_whisper_token_type, rwt);
-  rwt->token_data = &token_data;
-  rwt->text = whisper_full_get_token_text(context, i_segment, i_token);
+  rwt->token_data = ALLOC(whisper_token_data);
+  *(rwt->token_data) = whisper_full_get_token_data(context, i_segment, i_token);
+  rwt->text = rb_str_new2(whisper_full_get_token_text(context, i_segment, i_token));
   return token;
 }
 
@@ -184,9 +204,8 @@ ruby_whisper_token_get_text(VALUE self)
 {
   ruby_whisper_token *rwt;
   GetToken(self, rwt);
-  return rb_str_new2(rwt->text);
+  return rwt->text;
 }
-
 
 /*
  * Start time of the token.
@@ -241,7 +260,20 @@ static VALUE ruby_whisper_token_deconstruct_keys(VALUE self, VALUE keys)
   long n_keys = 0;
 
   if (NIL_P(keys)) {
-    keys = key_names;
+    keys = rb_ary_new3(
+      N_KEY_NAMES,
+      sym_id,
+      sym_tid,
+      sym_probability,
+      sym_log_probability,
+      sym_pt,
+      sym_ptsum,
+      sym_t_dtw,
+      sym_voice_length,
+      sym_start_time,
+      sym_end_time,
+      sym_text
+    );
     n_keys = N_KEY_NAMES;
   } else {
     n_keys = RARRAY_LEN(keys);
@@ -320,20 +352,6 @@ init_ruby_whisper_token(VALUE *mWhisper)
   sym_start_time = ID2SYM(rb_intern("start_time"));
   sym_end_time = ID2SYM(rb_intern("end_time"));
   sym_text = ID2SYM(rb_intern("text"));
-  key_names = rb_ary_new3(
-    N_KEY_NAMES,
-    sym_id,
-    sym_tid,
-    sym_probability,
-    sym_log_probability,
-    sym_pt,
-    sym_ptsum,
-    sym_t_dtw,
-    sym_voice_length,
-    sym_start_time,
-    sym_end_time,
-    sym_text
-  );
 
   rb_define_method(cToken, "id", ruby_whisper_token_get_id, 0);
   rb_define_method(cToken, "tid", ruby_whisper_token_get_tid, 0);
